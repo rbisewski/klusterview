@@ -1,2 +1,2 @@
 # klusterview
-Web-based kubernetes cluster view screen.
+Web-based kubernetes cluster viewer.
