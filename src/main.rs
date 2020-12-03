@@ -10,49 +10,116 @@ use std::process::Command;
 //
 // print_clusters()
 //
-async fn print_clusters(_: Request<Body>) -> Result<Response<Body>, Infallible> {
+async fn print_clusters(request: Request<Body>) -> Result<Response<Body>, Infallible> {
 
-    let clusters_cmd_output = Command::new("sh")
-                                       .arg("-c")
-                                       .arg("kubectl config get-clusters --kubeconfig=clusters.yaml | sort | grep -v NAME")
-                                       .output()
-                                       .expect("failed to execute process");
+    println!("Request: {:?}", request);
+    println!("URI: {}", request.uri());
 
-    let clusters = match String::from_utf8(clusters_cmd_output.stdout) {
-        Ok(v) => v,
-        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-    };
+    let mut body_content: String = String::from("");
+    let start_of_page: String;
+    let end_of_page: String;
 
-    let get_pods_cmd_output = Command::new("sh")
-                                       .arg("-c")
-                                       .arg("kubectl config current-context && echo && kubectl get pods --all-namespaces | grep -v kube-system")
-                                       .output()
-                                       .expect("failed to execute process");
+    //
+    // SHOW ALL CLUSTERS
+    //
+    if request.uri() == "/" {
+        let clusters_cmd_output = Command::new("sh")
+                                           .arg("-c")
+                                           .arg("kubectl config get-clusters --kubeconfig=clusters.yaml | sort | grep -v NAME")
+                                           .output()
+                                           .expect("failed to execute process");
 
-    let pods = match String::from_utf8(get_pods_cmd_output.stdout) {
-        Ok(v) => v,
-        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-    };
+        let clusters = match String::from_utf8(clusters_cmd_output.stdout) {
+            Ok(v) => v,
+            Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+        };
 
-    let result = [
-        "<html>".to_string(),
-        "<head>".to_string(),
-        "<title>Infrastructure cluster status page</title>".to_string(),
-        "</head>".to_string(),
-        "<body>".to_string(),
-        "<h2>Clusters</h2>".to_string(),
+        // start of page
+        start_of_page = [
+            "<html>\n
+                 <head>\n
+                     <title>Infrastructure cluster status page</title>\n
+                 </head>\n
+                 <body>\n
+                     <h2>Clusters</h2>\n
+                     <pre>\n".to_string(),
+            clusters.clone(),
+            "        </pre>\n
+                     <br>\n".to_string()
+        ].concat();
+
+        // end of page
+        end_of_page = [
+            "</body>\n
+             </html>".to_string()
+        ].concat();
+
+        let list_of_clusters: Vec<&str> = clusters.trim().split('\n').collect();
+
+        for cluster in list_of_clusters.iter() {
+
+            body_content.push_str(&["<h3 id='",cluster,"'>", cluster, "</h3>\n"].concat());
+
+            let get_pods_cmd_output = Command::new("sh")
+                                               .arg("-c")
+                                               .arg(["kubectl --kubeconfig=clusters.yaml config use-context ", cluster, " > /dev/null && kubectl --kubeconfig=clusters.yaml get pods --all-namespaces | grep -v kube-system"].concat())
+                                               .output()
+                                               .expect("failed to execute process");
+
+            let pods = match String::from_utf8(get_pods_cmd_output.stdout) {
+                Ok(v) => v,
+                Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+            };
+
+            body_content.push_str(&pods)
+        }
+
+    //
+    // DISPLAY THE PODS OF A SINGLE CLUSTER
+    //
+    } else {
+
+        let cluster = String::from(request.uri().to_string().trim_matches('/'));
+
+        let get_pods_cmd_output = Command::new("sh")
+                                           .arg("-c")
+                                           .arg(["kubectl --kubeconfig=clusters.yaml config use-context ", &cluster, " > /dev/null && kubectl --kubeconfig=clusters.yaml get pods --all-namespaces | grep -v kube-system"].concat())
+                                           .output()
+                                           .expect("failed to execute process");
+
+        let pods = match String::from_utf8(get_pods_cmd_output.stdout) {
+            Ok(v) => v,
+            Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+        };
+
+        body_content.push_str(&pods);
+
+        // start of page
+        start_of_page = [
+            "<html>\n
+                 <head>\n
+                     <title>Cluster pods</title>\n
+                 </head>\n
+                 <body>\n
+                     <br>\n".to_string()
+        ].concat();
+
+        // end of page
+        end_of_page = [
+            "</body>\n
+             </html>".to_string()
+        ].concat();
+    }
+
+    let html = [
+        start_of_page,
         "<pre>".to_string(),
-        clusters,
+        body_content,
         "</pre>".to_string(),
-        "<br>".to_string(),
-        "<pre>".to_string(),
-        pods,
-        "</pre>".to_string(),
-        "</body>".to_string(),
-        "</html>".to_string()
+        end_of_page,
     ].concat();
 
-    Ok(Response::new(Body::from(result)))
+    Ok(Response::new(Body::from(html)))
 }
 
 //
