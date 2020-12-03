@@ -26,6 +26,11 @@ build:
 	@echo 'Building release for ${PROJECT_NAME}...'
 	@cargo build --release
 
+static:
+	@echo 'Building static binaries for ${PROJECT_NAME}...'
+	@rustup target add x86_64-unknown-linux-musl
+	@cargo build --release --target x86_64-unknown-linux-musl
+
 run:
 	@RUST_LOG=trace cargo run
 
